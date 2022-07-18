@@ -1,43 +1,52 @@
 const Vertex = `
 struct VertexOutput {
   @builtin(position) position : vec4<f32>,
-  @location(0) texCoord: vec2<f32>,
+  @location(0) uv : vec2<f32>,
 }
 
-const plane = array<vec2<f32>, 6>(
-  vec2<f32>(1.0, 1.0),
-  vec2<f32>(1.0, -1.0),
-  vec2<f32>(-1.0, -1.0),
-  vec2<f32>(1.0, 1.0),
-  vec2<f32>(-1.0, -1.0),
-  vec2<f32>(-1.0, 1.0)
-);
-
 @vertex
-fn main(@builtin(vertex_index) VertexIndex : u32) -> VertexOutput {
-  var vsOut: VertexOutput;
-  vsOut.position = vec4<f32>(plane[VertexIndex], 0.0, 1.0);
-  vsOut.texCoord = vsOut.position.xy * 0.5 + 0.5;
-  vsOut.texCoord.y = 1.0 - vsOut.texCoord.y;
-  return vsOut;
+fn main(@location(0) position : vec4<f32>, @location(1) uv : vec2<f32>) -> VertexOutput {
+  var out : VertexOutput;
+  out.position = position;
+  out.uv = uv;
+  return out;
 }
 `;
 
 const Fragment = `
-@group(0) @binding(0) var mainSampler: sampler;
-@group(0) @binding(1) var mainTexture: texture_2d<f32>;
+@group(0) @binding(0) var mainSampler : sampler;
+@group(0) @binding(1) var mainTexture : texture_2d<f32>;
 
 @fragment
-fn main(@location(0) texCoord : vec2<f32>) -> @location(0) vec4<f32> {
-  return textureSample(mainTexture, mainSampler, texCoord);
+fn main(@location(0) uv : vec2<f32>) -> @location(0) vec4<f32> {
+  return textureSample(mainTexture, mainSampler, uv);
 }
 `;
+
+const Plane = (device) => {
+  const buffer = device.createBuffer({
+    size: 36 * Float32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.VERTEX,
+    mappedAtCreation: true,
+  });
+  new Float32Array(buffer.getMappedRange()).set([
+    -1, -1, 0, 1,   0, 1,
+    1, -1, 0, 1,    1, 1,
+    1, 1, 0, 1,     1, 0,
+    1, 1, 0, 1,     1, 0,
+    -1, 1, 0, 1,    0, 0,
+    -1, -1, 0, 1,   0, 1,
+  ]);
+  buffer.unmap();
+  return { buffer, count: 6 };
+};
 
 class Rasterizer {
   constructor({ adapter, canvas, device, texture }) {
     const format = navigator.gpu.getPreferredCanvasFormat(adapter);
     this.context = canvas.getContext('webgpu');
     this.context.configure({ alphaMode: 'opaque', device, format });
+    this.geometry = Plane(device);
     this.pipeline = device.createRenderPipeline({
       layout: 'auto',
       vertex: {
@@ -45,6 +54,21 @@ class Rasterizer {
           code: Vertex,
         }),
         entryPoint: 'main',
+        buffers: [{
+          arrayStride: 6 * Float32Array.BYTES_PER_ELEMENT,
+          attributes: [
+            {
+              shaderLocation: 0,
+              offset: 0,
+              format: 'float32x4',
+            },
+            {
+              shaderLocation: 1,
+              offset: 4 * Float32Array.BYTES_PER_ELEMENT,
+              format: 'float32x2',
+            },
+          ],
+        }],
       },
       fragment: {
         module: device.createShaderModule({
@@ -76,7 +100,7 @@ class Rasterizer {
   }
 
   render(command) {
-    const { bindings, context, pipeline } = this;
+    const { bindings, context, geometry, pipeline } = this;
     const pass = command.beginRenderPass({
       colorAttachments: [{
         view: context.getCurrentTexture().createView(),
@@ -86,7 +110,8 @@ class Rasterizer {
     });
     pass.setPipeline(pipeline);
     pass.setBindGroup(0, bindings);
-    pass.draw(6, 1, 0, 0);
+    pass.setVertexBuffer(0, geometry.buffer);
+    pass.draw(geometry.count, 1, 0, 0);
     pass.end();
   }
 }

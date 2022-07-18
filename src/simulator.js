@@ -3,7 +3,7 @@ import Rasterizer from './rasterizer.js';
 
 const Cells = `
 struct Cells {
-  data : array<f32>
+  data : array<f32>,
 };
 
 fn cellFromPos(coords : vec2<i32>) -> u32 {
@@ -153,8 +153,8 @@ ${Cells}
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
   var cell : u32 = cellFromPos(coords);
-  var out = vec3<f32>(0.0, 0.0, 0.0);
-  var v = walls.data[cell];
+  var out : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+  var v : f32 = walls.data[cell];
   if (v > 0.0) {
     out = vec3<f32>(0.6, 0.4, 0.0) * (0.4 + min(v / 2.0, 0.8));
   } else {
