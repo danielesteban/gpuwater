@@ -181,7 +181,11 @@ class Simulator {
         const buffers = Array.from({ length: 3 }, (v, i) => {
           const buffer = device.createBuffer({
             size: width * height * Float32Array.BYTES_PER_ELEMENT,
-            usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
+            usage: (
+              (i == 1 ? GPUBufferUsage.COPY_DST : 0)
+              | (i === 2 ? GPUBufferUsage.COPY_SRC : 0)
+              | GPUBufferUsage.STORAGE
+            ),
             mappedAtCreation: i === 0,
           });
           if (i === 0) {
