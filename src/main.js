@@ -53,7 +53,7 @@ if (navigator.gpu && navigator.gpu.getPreferredCanvasFormat) {
     const delta = now - clock;
     clock = now;
     if (simulator.isReady) {
-      simulator.tick(Math.min(Math.floor(delta / (1 / 600)), 10), pointer);
+      simulator.tick(Math.min(Math.max(Math.floor(delta / (1 / 600)), 1), 10), pointer);
     }
   };
   requestAnimationFrame(animate);
