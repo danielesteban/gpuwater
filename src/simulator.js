@@ -44,7 +44,7 @@ const neighbors = array<vec2<i32>, 4>(
   vec2<i32>(0, -1)
 );
 
-@compute @workgroup_size(1, 1)
+@compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + params.offset;
   if (coords.x >= __WIDTH__ || coords.y >= __HEIGHT__) {
@@ -149,7 +149,7 @@ ${Cells}
 @binding(1) @group(0) var<storage, read> water : Cells;
 @binding(2) @group(0) var color : texture_storage_2d<rgba8unorm, write>;
 
-@compute @workgroup_size(16, 16)
+@compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
   var cell : u32 = cellFromPos(coords);
@@ -355,7 +355,7 @@ class Simulator {
       const pass = command.beginComputePass();
       pass.setPipeline(output.pipeline);
       pass.setBindGroup(0, output.bindings);
-      pass.dispatchWorkgroups(Math.ceil(simulation.width / 16), Math.ceil(simulation.height / 16));
+      pass.dispatchWorkgroups(simulation.width, simulation.height);
       pass.end();
     }
     rasterizer.render(command);
