@@ -283,8 +283,8 @@ class Simulator {
   }
 
   tick(iterations, pointer) {
-    const { simulation, device, output, update } = this;
-  
+    const { device, output, simulation, update } = this;
+
     if (pointer.button !== -1) {
       update.uniforms.set([
         Math.floor(pointer.x * simulation.width),
