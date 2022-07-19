@@ -39,6 +39,9 @@ const neighbors = array<vec2<i32>, 4>(
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var pos : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + offset;
+  if (pos.x >= __WIDTH__ || pos.y >= __HEIGHT__) {
+    return;
+  }
   var cell : u32 = cellFromPos(pos);
   if (world[cell] > 0.0) {
     return;
