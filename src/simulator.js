@@ -221,7 +221,7 @@ class Simulator {
           }),
           uniforms: {
             buffer: simulationUniforms,
-            data: new Int32Array([0, 0]),
+            data: new Int32Array(2),
           },
           buffers,
           pipeline: simulationPipeline,
@@ -292,7 +292,7 @@ class Simulator {
           }),
           uniforms: {
             buffer: updateUniforms,
-            data: new Int32Array([0, 0, 0, 0]),
+            data: new Int32Array(4),
           },
           buffers,
           pipeline: updatePipeline,
