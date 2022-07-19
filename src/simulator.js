@@ -2,8 +2,8 @@ import FastNoise from 'fastnoise-lite';
 import Rasterizer from './rasterizer.js';
 
 const CellFromPos = `
-fn cellFromPos(coords : vec2<i32>) -> u32 {
-  return u32(coords.y * __WIDTH__ + coords.x); 
+fn cellFromPos(pos : vec2<i32>) -> u32 {
+  return u32(pos.y * __WIDTH__ + pos.x); 
 }
 `;
 
@@ -38,18 +38,15 @@ const neighbors = array<vec2<i32>, 4>(
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + offset;
-  if (coords.x >= __WIDTH__ || coords.y >= __HEIGHT__) {
-    return;
-  }
-  var cell : u32 = cellFromPos(coords);
+  var pos : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + offset;
+  var cell : u32 = cellFromPos(pos);
   if (walls[cell] > 0.0) {
     return;
   }
   var mass : f32 = waterState[cell];
   var remainingMass : f32 = mass;
   for (var n : u32 = 0; remainingMass > 0.0 && n < 4; n++) {
-    var npos : vec2<i32> = coords + neighbors[n];
+    var npos : vec2<i32> = pos + neighbors[n];
     var neighbor : u32 = cellFromPos(npos);
     var edge : bool = npos.x < 0 || npos.x >= __WIDTH__ || npos.y < 0 || npos.y >= __HEIGHT__;
     if (edge || walls[neighbor] == 0.0) {
@@ -59,22 +56,20 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       }
       var flow : f32;
       switch (n) {
-        default: {
-          flow = 0.0;
+        default: { // Left || Right
+          // Equalize the amount of water between neighbors
+          flow = (mass - neighborMass) / 4.0f;
         }
         case 0: { // Down
           flow = getStableState(remainingMass + neighborMass) - neighborMass;
-        }
-        case 1, 2: { // Left || Right
-          // Equalize the amount of water between neighbors
-          flow = (mass - neighborMass) / 4.0f;
         }
         case 3: { // Up
           // Only compressed water flows upwards
           flow = remainingMass - getStableState(remainingMass + neighborMass);
         }
       }
-      if (flow > 0.1) { // Smooth flow
+      if (flow > 0.1) {
+        // Smooth flow
         flow *= 0.5;
       }
       flow = clamp(flow, 0.0, min(1.0, remainingMass));
@@ -155,8 +150,8 @@ fn getColor(cell : u32) -> vec3<f32> {
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
-  textureStore(color, coords, vec4<f32>(getColor(cellFromPos(coords)), 1.0));
+  var pos : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
+  textureStore(color, pos, vec4<f32>(getColor(cellFromPos(pos)), 1.0));
 }
 `;
 
