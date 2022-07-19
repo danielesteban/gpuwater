@@ -322,7 +322,7 @@ class Simulator {
       //   [ · ]
       // 1 [/·\]
       //   [   ]
-      // Second pass
+      // Fourth pass
       //   [   ]
       // 0 [\./]
       //   [ · ]
