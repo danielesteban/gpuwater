@@ -186,7 +186,7 @@ class Simulator {
               for (let x = 0; x < width; x++, j++) {
                 const n = noise.GetNoise(x, y);
                 if (n > 0.1) {
-                  data[j] = 0.9 + n;
+                  data[j] = 1 + ((n - 0.1) / 0.9);
                 }
               }
             }
