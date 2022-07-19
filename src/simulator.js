@@ -9,7 +9,7 @@ fn cellFromPos(pos : vec2<i32>) -> u32 {
 
 const Simulation = `
 @binding(0) @group(0) var<uniform> offset : vec2<i32>;
-@binding(1) @group(0) var<storage, read> walls : array<f32>;
+@binding(1) @group(0) var<storage, read> world : array<f32>;
 @binding(2) @group(0) var<storage, read> waterState : array<f32>;
 @binding(3) @group(0) var<storage, read_write> waterStep : array<f32>;
 
@@ -33,14 +33,14 @@ const neighbors = array<vec2<i32>, 4>(
   vec2<i32>(0, 1),
   vec2<i32>(-1, 0),
   vec2<i32>(1, 0),
-  vec2<i32>(0, -1)
+  vec2<i32>(0, -1),
 );
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var pos : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + offset;
   var cell : u32 = cellFromPos(pos);
-  if (walls[cell] > 0.0) {
+  if (world[cell] > 0.0) {
     return;
   }
   var mass : f32 = waterState[cell];
@@ -49,7 +49,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
     var npos : vec2<i32> = pos + neighbors[n];
     var neighbor : u32 = cellFromPos(npos);
     var edge : bool = npos.x < 0 || npos.x >= __WIDTH__ || npos.y < 0 || npos.y >= __HEIGHT__;
-    if (edge || walls[neighbor] == 0.0) {
+    if (edge || world[neighbor] == 0.0) {
       var neighborMass : f32 = 0.0;
       if (!edge) {
         neighborMass = waterState[neighbor];
@@ -91,7 +91,7 @@ struct Params {
 };
 
 @binding(0) @group(0) var<uniform> params : Params;
-@binding(1) @group(0) var<storage, read_write> walls : array<f32>;
+@binding(1) @group(0) var<storage, read_write> world : array<f32>;
 @binding(2) @group(0) var<storage, read_write> waterState : array<f32>;
 @binding(3) @group(0) var<storage, read_write> waterStep : array<f32>;
 
@@ -108,18 +108,18 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       var cell : u32 = cellFromPos(pos);
       switch (params.button) {
         default: {
-          if (walls[cell] == 0) {
+          if (world[cell] == 0) {
             waterState[cell] = 0.5;
             waterStep[cell] = 0.5;
           }
         }
         case 1: {
-          walls[cell] = 1;
+          world[cell] = 1;
           waterState[cell] = 0;
           waterStep[cell] = 0;
         }
         case 2: {
-          walls[cell] = 0;
+          world[cell] = 0;
           waterState[cell] = 0;
           waterStep[cell] = 0;
         }
@@ -130,7 +130,7 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 `;
 
 const Output = `
-@binding(0) @group(0) var<storage, read> walls : array<f32>;
+@binding(0) @group(0) var<storage, read> world : array<f32>;
 @binding(1) @group(0) var<storage, read> water : array<f32>;
 @binding(2) @group(0) var<storage, read> noise : array<f32>;
 @binding(3) @group(0) var color : texture_storage_2d<rgba8unorm, write>;
@@ -147,7 +147,7 @@ fn getDither(pos : vec2<i32>, granularity : f32) -> f32 {
 
 fn getColor(pos : vec2<i32>) -> vec3<f32> {
   var cell : u32 = cellFromPos(pos);
-  var value : f32 = walls[cell];
+  var value : f32 = world[cell];
   if (value > 0.0) {
     return (vec3<f32>(0.6, 0.4, 0.0) + getDither(pos, 0.03)) * (0.4 + min(value / 2.0, 0.8));
   }
@@ -179,6 +179,28 @@ const Noise = (device, size) => {
   return buffer;
 };
 
+const World = (device, width, height) => {
+  const buffer = device.createBuffer({
+    size: width * height * Float32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.STORAGE,
+    mappedAtCreation: true,
+  });
+  const data = new Float32Array(buffer.getMappedRange());
+  const noise = new FastNoise();
+  noise.SetSeed(Math.floor(Math.random() * 2147483647));
+  noise.SetFractalType(FastNoise.FractalType.FBm);
+  noise.SetFrequency(0.005);
+  for (let j = 0, y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++, j++) {
+      const n = noise.GetNoise(x, y);
+      if (n > 0.1) {
+        data[j] = 1 + ((n - 0.1) / 0.9);
+      }
+    }
+  }
+  buffer.unmap();
+  return buffer;
+};
 
 class Simulator {
   constructor({ canvas, width, height }) {
@@ -191,34 +213,16 @@ class Simulator {
       .then((device) => {
         this.device = device;
 
-        const buffers = Array.from({ length: 3 }, (v, i) => {
-          const buffer = device.createBuffer({
+        const buffers = [
+          World(device, width, height),
+          ...Array.from({ length: 2 }, (v, i) => device.createBuffer({
             size: width * height * Float32Array.BYTES_PER_ELEMENT,
             usage: (
-              (i == 1 ? GPUBufferUsage.COPY_DST : 0)
-              | (i === 2 ? GPUBufferUsage.COPY_SRC : 0)
+              (i === 0 ? GPUBufferUsage.COPY_DST : GPUBufferUsage.COPY_SRC)
               | GPUBufferUsage.STORAGE
             ),
-            mappedAtCreation: i === 0,
-          });
-          if (i === 0) {
-            const data = new Float32Array(buffer.getMappedRange());
-            const noise = new FastNoise();
-            noise.SetSeed(Math.floor(Math.random() * 2147483647));
-            noise.SetFractalType(FastNoise.FractalType.FBm);
-            noise.SetFrequency(0.005);
-            for (let j = 0, y = 0; y < height; y++) {
-              for (let x = 0; x < width; x++, j++) {
-                const n = noise.GetNoise(x, y);
-                if (n > 0.1) {
-                  data[j] = 1 + ((n - 0.1) / 0.9);
-                }
-              }
-            }
-            buffer.unmap();
-          }
-          return buffer;
-        });
+          })),
+        ];
 
         const simulationPipeline = device.createComputePipeline({
           layout: 'auto',
@@ -344,10 +348,12 @@ class Simulator {
     const { simulation, device, output, rasterizer, update } = this;
   
     if (pointer.button !== -1) {
-      update.uniforms.data[0] = Math.floor(pointer.x * simulation.width);
-      update.uniforms.data[1] = Math.floor(pointer.y * simulation.height);
-      update.uniforms.data[2] = pointer.button;
-      update.uniforms.data[3] = pointer.size;
+      update.uniforms.data.set([
+        Math.floor(pointer.x * simulation.width),
+        Math.floor(pointer.y * simulation.height),
+        pointer.button,
+        pointer.size,
+      ]);
       device.queue.writeBuffer(update.uniforms.buffer, 0, update.uniforms.data);
       const command = device.createCommandEncoder();
       const pass = command.beginComputePass();
@@ -361,8 +367,7 @@ class Simulator {
     for (let i = 0; i < iterations; i++) {
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 3; x++) {
-          simulation.uniforms.data[0] = x;
-          simulation.uniforms.data[1] = y;
+          simulation.uniforms.data.set([x, y]);
           device.queue.writeBuffer(simulation.uniforms.buffer, 0, simulation.uniforms.data);
           const command = device.createCommandEncoder();
           const pass = command.beginComputePass();
