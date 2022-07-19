@@ -1,5 +1,6 @@
 import './main.css';
 import Simulator from './simulator.js';
+import Rasterizer from './rasterizer.js';
 
 const SIMULATION_WIDTH = 1024;
 const SIMULATION_HEIGHT = 768;
@@ -38,25 +39,39 @@ window.addEventListener('mouseup', ({ button }) => {
   }
 }, false);
 
-let clock = performance.now() / 1000;
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    clock = performance.now() / 1000;
-  }
-}, false);
-
 if (navigator.gpu && navigator.gpu.getPreferredCanvasFormat) {
-  const simulator = new Simulator({ canvas, width: SIMULATION_WIDTH, height: SIMULATION_HEIGHT });
-  const animate = () => {
-    requestAnimationFrame(animate);
-    const now = performance.now() / 1000;
-    const delta = now - clock;
-    clock = now;
-    if (simulator.isReady) {
+  (async () => {
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+    const simulator = new Simulator({
+      device,
+      width: SIMULATION_WIDTH,
+      height: SIMULATION_HEIGHT,
+    });
+    const rasterizer = new Rasterizer({
+      canvas,
+      device,
+      format: navigator.gpu.getPreferredCanvasFormat(adapter),
+      texture: simulator.output.texture.createView(),
+    });
+
+    let clock = performance.now() / 1000;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        clock = performance.now() / 1000;
+      }
+    }, false);
+
+    const animate = () => {
+      requestAnimationFrame(animate);
+      const now = performance.now() / 1000;
+      const delta = now - clock;
+      clock = now;
       simulator.tick(Math.min(Math.max(Math.floor(delta / (1 / 600)), 1), 10), pointer);
-    }
-  };
-  requestAnimationFrame(animate);
+      rasterizer.render();
+    };
+    requestAnimationFrame(animate);
+  })();
 } else {
   document.getElementById('canary').classList.add('enabled');
 }

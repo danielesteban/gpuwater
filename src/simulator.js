@@ -1,5 +1,4 @@
 import { Noise, Uniforms, World } from './buffers.js';
-import Rasterizer from './rasterizer.js';
 
 const CellFromPos = `
 fn cellFromPos(pos : vec2<i32>) -> u32 {
@@ -172,135 +171,119 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 `;
 
 class Simulator {
-  constructor({ canvas, width, height }) {
-    navigator.gpu
-      .requestAdapter()
-      .then((adapter) => {
-        this.adapter = adapter;
-        return adapter.requestDevice();
-      })
-      .then((device) => {
-        this.device = device;
+  constructor({ device, width, height }) {
+    this.device = device;
 
-        const buffers = [
-          World(device, width, height),
-          ...Array.from({ length: 2 }, (v, i) => device.createBuffer({
-            size: width * height * Float32Array.BYTES_PER_ELEMENT,
-            usage: (
-              (i === 0 ? GPUBufferUsage.COPY_DST : GPUBufferUsage.COPY_SRC)
-              | GPUBufferUsage.STORAGE
-            ),
-          })),
-        ];
+    const buffers = [
+      World(device, width, height),
+      ...Array.from({ length: 2 }, (v, i) => device.createBuffer({
+        size: width * height * Float32Array.BYTES_PER_ELEMENT,
+        usage: (
+          (i === 0 ? GPUBufferUsage.COPY_DST : GPUBufferUsage.COPY_SRC)
+          | GPUBufferUsage.STORAGE
+        ),
+      })),
+    ];
 
-        const simulationPipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: {
-            module: device.createShaderModule({
-              code: Simulation.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
-            }),
-            entryPoint: 'main',
+    const simulationPipeline = device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: device.createShaderModule({
+          code: Simulation.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
+        }),
+        entryPoint: 'main',
+      },
+    });
+    const simulationUniforms = Uniforms(device, new Int32Array(2));
+    this.simulation = {
+      bindings: device.createBindGroup({
+        layout: simulationPipeline.getBindGroupLayout(0),
+        entries: [simulationUniforms.buffer, ...buffers].map((buffer, binding) => ({
+          binding,
+          resource: { buffer },
+        })),
+      }),
+      buffers,
+      pipeline: simulationPipeline,
+      uniforms: simulationUniforms,
+      width,
+      height,
+    };
+
+    const updatePipeline = device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: device.createShaderModule({
+          code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
+        }),
+        entryPoint: 'main',
+      },
+    });
+    const updateUniforms = Uniforms(device, new Int32Array(4)); 
+    this.update = {
+      bindings: device.createBindGroup({
+        layout: updatePipeline.getBindGroupLayout(0),
+        entries: [updateUniforms.buffer, ...buffers].map((buffer, binding) => ({
+          binding,
+          resource: { buffer },
+        })),
+      }),
+      pipeline: updatePipeline,
+      uniforms: updateUniforms,
+    };
+
+    const outputPipeline = device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: device.createShaderModule({
+          code: Output
+            .replace(/__WIDTH__/g, width)
+            .replace(/__HEIGHT__/g, height)
+            .replace(/__NOISE_SIZE__/g, 256),
+        }),
+        entryPoint: 'main',
+      },
+    });
+    const outputTexture = device.createTexture({
+      size: { width, height },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    this.output = {
+      bindings: device.createBindGroup({
+        layout: outputPipeline.getBindGroupLayout(0),
+        entries: [
+          {
+            binding: 0,
+            resource: {
+              buffer: buffers[0],
+            },
           },
-        });
-        const simulationUniforms = Uniforms(device, new Int32Array(2));
-        this.simulation = {
-          bindings: device.createBindGroup({
-            layout: simulationPipeline.getBindGroupLayout(0),
-            entries: [simulationUniforms.buffer, ...buffers].map((buffer, binding) => ({
-              binding,
-              resource: { buffer },
-            })),
-          }),
-          buffers,
-          pipeline: simulationPipeline,
-          uniforms: simulationUniforms,
-          width,
-          height,
-        };
-
-        const updatePipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: {
-            module: device.createShaderModule({
-              code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
-            }),
-            entryPoint: 'main',
+          {
+            binding: 1,
+            resource: {
+              buffer: buffers[1],
+            },
           },
-        });
-        const updateUniforms = Uniforms(device, new Int32Array(4)); 
-        this.update = {
-          bindings: device.createBindGroup({
-            layout: updatePipeline.getBindGroupLayout(0),
-            entries: [updateUniforms.buffer, ...buffers].map((buffer, binding) => ({
-              binding,
-              resource: { buffer },
-            })),
-          }),
-          pipeline: updatePipeline,
-          uniforms: updateUniforms,
-        };
-
-        const outputPipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: {
-            module: device.createShaderModule({
-              code: Output
-                .replace(/__WIDTH__/g, width)
-                .replace(/__HEIGHT__/g, height)
-                .replace(/__NOISE_SIZE__/g, 256),
-            }),
-            entryPoint: 'main',
+          {
+            binding: 2,
+            resource: {
+              buffer: Noise(device, 256),
+            },
           },
-        });
-        const outputTexture = device.createTexture({
-          size: { width, height },
-          format: 'rgba8unorm',
-          usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
-        });
-        this.output = {
-          bindings: device.createBindGroup({
-            layout: outputPipeline.getBindGroupLayout(0),
-            entries: [
-              {
-                binding: 0,
-                resource: {
-                  buffer: buffers[0],
-                },
-              },
-              {
-                binding: 1,
-                resource: {
-                  buffer: buffers[1],
-                },
-              },
-              {
-                binding: 2,
-                resource: {
-                  buffer: Noise(device, 256),
-                },
-              },
-              {
-                binding: 3,
-                resource: outputTexture.createView(),
-              },
-            ],
-          }),
-          pipeline: outputPipeline,
-        };
-
-        this.rasterizer = new Rasterizer({
-          adapter: this.adapter,
-          canvas,
-          device,
-          texture: outputTexture.createView(),
-        });
-
-        this.isReady = true;
-      });
+          {
+            binding: 3,
+            resource: outputTexture.createView(),
+          },
+        ],
+      }),
+      pipeline: outputPipeline,
+      texture: outputTexture,
+    };
   }
 
   tick(iterations, pointer) {
-    const { simulation, device, output, rasterizer, update } = this;
+    const { simulation, device, output, update } = this;
   
     if (pointer.button !== -1) {
       update.uniforms.set([
@@ -373,7 +356,6 @@ class Simulator {
       pass.setBindGroup(0, output.bindings);
       pass.dispatchWorkgroups(simulation.width, simulation.height);
       pass.end();
-      rasterizer.render(command);
       device.queue.submit([command.finish()]);
     }
   }

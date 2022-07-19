@@ -42,8 +42,8 @@ const Plane = (device) => {
 };
 
 class Rasterizer {
-  constructor({ adapter, canvas, device, texture }) {
-    const format = navigator.gpu.getPreferredCanvasFormat(adapter);
+  constructor({ canvas, device, format, texture }) {
+    this.device = device;
     this.context = canvas.getContext('webgpu');
     this.context.configure({ alphaMode: 'opaque', device, format });
     this.geometry = Plane(device);
@@ -99,8 +99,9 @@ class Rasterizer {
     });
   }
 
-  render(command) {
-    const { bindings, context, geometry, pipeline } = this;
+  render() {
+    const { bindings, context, device, geometry, pipeline } = this;
+    const command = device.createCommandEncoder();
     const pass = command.beginRenderPass({
       colorAttachments: [{
         view: context.getCurrentTexture().createView(),
@@ -113,6 +114,7 @@ class Rasterizer {
     pass.setVertexBuffer(0, geometry.buffer);
     pass.draw(geometry.count, 1, 0, 0);
     pass.end();
+    device.queue.submit([command.finish()]);
   }
 }
 
