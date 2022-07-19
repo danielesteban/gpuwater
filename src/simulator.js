@@ -193,28 +193,6 @@ class Simulator {
           })),
         ];
 
-        const updatePipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: {
-            module: device.createShaderModule({
-              code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
-            }),
-            entryPoint: 'main',
-          },
-        });
-        const updateUniforms = Uniforms(device, new Int32Array(4)); 
-        this.update = {
-          bindings: device.createBindGroup({
-            layout: updatePipeline.getBindGroupLayout(0),
-            entries: [updateUniforms.buffer, ...buffers].map((buffer, binding) => ({
-              binding,
-              resource: { buffer },
-            })),
-          }),
-          pipeline: updatePipeline,
-          uniforms: updateUniforms,
-        };
-
         const simulationPipeline = device.createComputePipeline({
           layout: 'auto',
           compute: {
@@ -238,6 +216,28 @@ class Simulator {
           uniforms: simulationUniforms,
           width,
           height,
+        };
+
+        const updatePipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: {
+            module: device.createShaderModule({
+              code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
+            }),
+            entryPoint: 'main',
+          },
+        });
+        const updateUniforms = Uniforms(device, new Int32Array(4)); 
+        this.update = {
+          bindings: device.createBindGroup({
+            layout: updatePipeline.getBindGroupLayout(0),
+            entries: [updateUniforms.buffer, ...buffers].map((buffer, binding) => ({
+              binding,
+              resource: { buffer },
+            })),
+          }),
+          pipeline: updatePipeline,
+          uniforms: updateUniforms,
         };
 
         const outputPipeline = device.createComputePipeline({
