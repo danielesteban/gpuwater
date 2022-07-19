@@ -102,7 +102,10 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   for (var y : i32 = -params.size; y <= params.size; y++) {
     for (var x : i32 = -params.size; x <= params.size; x++) {
       var pos : vec2<i32> = vec2<i32>(params.pointer.x + x, params.pointer.y + y);
-      if (pos.x < 0 || pos.x >= __WIDTH__ || pos.y < 0 || pos.y >= __HEIGHT__ || length(vec2<f32>(f32(x), f32(y))) >= f32(params.size)) {
+      if (
+        pos.x < 0 || pos.x >= __WIDTH__ || pos.y < 0 || pos.y >= __HEIGHT__
+        || length(vec2<f32>(f32(x), f32(y))) >= f32(params.size)
+      ) {
         continue;
       }
       var cell : u32 = cellFromPos(pos);
@@ -297,49 +300,53 @@ class Simulator {
     const { simulation, device, output, rasterizer, update } = this;
   
     if (pointer.button !== -1) {
-      const command = device.createCommandEncoder();
-      const pass = command.beginComputePass();
-      pass.setPipeline(update.pipeline);
-      pass.setBindGroup(0, update.bindings);
-      pass.dispatchWorkgroups(1);
-      pass.end();
       update.uniforms.set([
         Math.floor(pointer.x * simulation.width),
         Math.floor(pointer.y * simulation.height),
         pointer.button,
         pointer.size,
       ]);
+      const command = device.createCommandEncoder();
+      const pass = command.beginComputePass();
+      pass.setPipeline(update.pipeline);
+      pass.setBindGroup(0, update.bindings);
+      pass.dispatchWorkgroups(1);
+      pass.end();
       device.queue.submit([command.finish()]);
     }
 
     for (let i = 0; i < iterations; i++) {
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 3; x++) {
+          simulation.uniforms.set([x, y]);
           const command = device.createCommandEncoder();
           const pass = command.beginComputePass();
           pass.setPipeline(simulation.pipeline);
           pass.setBindGroup(0, simulation.bindings);
           pass.dispatchWorkgroups(Math.ceil(simulation.width / 3), Math.ceil(simulation.height / 3));
           pass.end();
-          simulation.uniforms.set([x, y]);
           device.queue.submit([command.finish()]);
         }
       }
       const command = device.createCommandEncoder();
-      command.copyBufferToBuffer(simulation.buffers[2], 0, simulation.buffers[1], 0, simulation.buffers[2].size);
+      command.copyBufferToBuffer(
+        simulation.buffers[2], 0,
+        simulation.buffers[1], 0,
+        simulation.buffers[1].size
+      );
       device.queue.submit([command.finish()]);
     }
 
-    const command = device.createCommandEncoder();
     {
+      const command = device.createCommandEncoder();
       const pass = command.beginComputePass();
       pass.setPipeline(output.pipeline);
       pass.setBindGroup(0, output.bindings);
       pass.dispatchWorkgroups(simulation.width, simulation.height);
       pass.end();
+      rasterizer.render(command);
+      device.queue.submit([command.finish()]);
     }
-    rasterizer.render(command);
-    device.queue.submit([command.finish()]);
   }
 }
 
