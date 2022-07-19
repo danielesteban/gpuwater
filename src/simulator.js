@@ -1,27 +1,19 @@
 import FastNoise from 'fastnoise-lite';
 import Rasterizer from './rasterizer.js';
 
-const Cells = `
-struct Cells {
-  data : array<f32>,
-};
-
+const CellFromPos = `
 fn cellFromPos(coords : vec2<i32>) -> u32 {
   return u32(coords.y * __WIDTH__ + coords.x); 
 }
 `;
 
 const Simulation = `
-${Cells}
+@binding(0) @group(0) var<uniform> offset : vec2<i32>;
+@binding(1) @group(0) var<storage, read> walls : array<f32>;
+@binding(2) @group(0) var<storage, read> waterState : array<f32>;
+@binding(3) @group(0) var<storage, read_write> waterStep : array<f32>;
 
-struct Params {
-  offset : vec2<i32>,
-};
-
-@binding(0) @group(0) var<uniform> params : Params;
-@binding(1) @group(0) var<storage, read> walls : Cells;
-@binding(2) @group(0) var<storage, read> waterState : Cells;
-@binding(3) @group(0) var<storage, read_write> waterStep : Cells;
+${CellFromPos}
 
 const maxMass : f32 = 1.0; // The un-pressurized mass of a full water cell
 const maxCompress : f32 = 0.02; // How much excess water a cell can store, compared to the cell above it
@@ -46,24 +38,24 @@ const neighbors = array<vec2<i32>, 4>(
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
-  var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + params.offset;
+  var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy) * 3 + offset;
   if (coords.x >= __WIDTH__ || coords.y >= __HEIGHT__) {
     return;
   }
   var cell : u32 = cellFromPos(coords);
-  if (walls.data[cell] > 0.0) {
+  if (walls[cell] > 0.0) {
     return;
   }
-  var mass : f32 = waterState.data[cell];
+  var mass : f32 = waterState[cell];
   var remainingMass : f32 = mass;
   for (var n : u32 = 0; remainingMass > 0.0 && n < 4; n++) {
     var npos : vec2<i32> = coords + neighbors[n];
     var neighbor : u32 = cellFromPos(npos);
     var edge : bool = npos.x < 0 || npos.x >= __WIDTH__ || npos.y < 0 || npos.y >= __HEIGHT__;
-    if (edge || walls.data[neighbor] == 0.0) {
+    if (edge || walls[neighbor] == 0.0) {
       var neighborMass : f32 = 0.0;
       if (!edge) {
-        neighborMass = waterState.data[neighbor];
+        neighborMass = waterState[neighbor];
       }
       var flow : f32;
       switch (n) {
@@ -86,9 +78,9 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
         flow *= 0.5;
       }
       flow = clamp(flow, 0.0, min(1.0, remainingMass));
-      waterStep.data[cell] -= flow;
+      waterStep[cell] -= flow;
       if (!edge) {
-        waterStep.data[neighbor] += flow;
+        waterStep[neighbor] += flow;
       }
       remainingMass -= flow;
     }
@@ -97,8 +89,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 `;
 
 const Update = `
-${Cells}
-
 struct Params {
   pointer : vec2<i32>,
   button : i32,
@@ -106,9 +96,11 @@ struct Params {
 };
 
 @binding(0) @group(0) var<uniform> params : Params;
-@binding(1) @group(0) var<storage, read_write> walls : Cells;
-@binding(2) @group(0) var<storage, read_write> waterState : Cells;
-@binding(3) @group(0) var<storage, read_write> waterStep : Cells;
+@binding(1) @group(0) var<storage, read_write> walls : array<f32>;
+@binding(2) @group(0) var<storage, read_write> waterState : array<f32>;
+@binding(3) @group(0) var<storage, read_write> waterStep : array<f32>;
+
+${CellFromPos}
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
@@ -121,20 +113,20 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
       var cell : u32 = cellFromPos(pos);
       switch (params.button) {
         default: {
-          if (walls.data[cell] == 0) {
-            waterState.data[cell] = 0.5;
-            waterStep.data[cell] = 0.5;
+          if (walls[cell] == 0) {
+            waterState[cell] = 0.5;
+            waterStep[cell] = 0.5;
           }
         }
         case 1: {
-          walls.data[cell] = 1;
-          waterState.data[cell] = 0;
-          waterStep.data[cell] = 0;
+          walls[cell] = 1;
+          waterState[cell] = 0;
+          waterStep[cell] = 0;
         }
         case 2: {
-          walls.data[cell] = 0;
-          waterState.data[cell] = 0;
-          waterStep.data[cell] = 0;
+          walls[cell] = 0;
+          waterState[cell] = 0;
+          waterStep[cell] = 0;
         }
       }
     }
@@ -143,27 +135,28 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 `;
 
 const Output = `
-${Cells}
-
-@binding(0) @group(0) var<storage, read> walls : Cells;
-@binding(1) @group(0) var<storage, read> water : Cells;
+@binding(0) @group(0) var<storage, read> walls : array<f32>;
+@binding(1) @group(0) var<storage, read> water : array<f32>;
 @binding(2) @group(0) var color : texture_storage_2d<rgba8unorm, write>;
+
+${CellFromPos}
+
+fn getColor(cell : u32) -> vec3<f32> {
+  var v : f32 = walls[cell];
+  if (v > 0.0) {
+    return vec3<f32>(0.6, 0.4, 0.0) * (0.4 + min(v / 2.0, 0.8));
+  }
+  v = water[cell];
+  if (v > 0.001) {
+    return vec3<f32>(0.0, 0.0, 1.0) * (1.0 - min(v / 2.0, 0.8));
+  }
+  return vec3<f32>(0.0, 0.0, 0.0);
+}
 
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var coords : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
-  var cell : u32 = cellFromPos(coords);
-  var out : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
-  var v : f32 = walls.data[cell];
-  if (v > 0.0) {
-    out = vec3<f32>(0.6, 0.4, 0.0) * (0.4 + min(v / 2.0, 0.8));
-  } else {
-    v = water.data[cell];
-    if (v > 0.001) {
-      out = vec3<f32>(0.0, 0.0, 1.0) * (1.0 - min(v / 2.0, 0.8));
-    }
-  }
-  textureStore(color, coords, vec4<f32>(out, 1.0));
+  textureStore(color, coords, vec4<f32>(getColor(cellFromPos(coords)), 1.0));
 }
 `;
 

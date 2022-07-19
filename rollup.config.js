@@ -33,7 +33,7 @@ export default {
     html({
       template: ({ files }) => (
         fs.readFileSync(path.join(__dirname, 'src', 'index.html'), 'utf8')
-          .replace(/__TOKEN__/g, token)
+          .replace('__TOKEN__', token)
           .replace(
             '<link rel="stylesheet">',
             (files.css || [])
