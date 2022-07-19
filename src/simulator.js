@@ -1,4 +1,4 @@
-import { Noise, Uniforms, World } from './buffers.js';
+import { Noise, Uniform, World } from './buffers.js';
 
 const CellFromPos = `
 fn cellFromPos(pos : vec2<i32>) -> u32 {
@@ -194,7 +194,7 @@ class Simulator {
         entryPoint: 'main',
       },
     });
-    const simulationUniforms = Uniforms(device, new Int32Array(2));
+    const simulationUniforms = Uniform(device, new Int32Array(2));
     this.simulation = {
       bindings: device.createBindGroup({
         layout: simulationPipeline.getBindGroupLayout(0),
@@ -219,7 +219,7 @@ class Simulator {
         entryPoint: 'main',
       },
     });
-    const updateUniforms = Uniforms(device, new Int32Array(4)); 
+    const updateUniforms = Uniform(device, new Int32Array(4)); 
     this.update = {
       bindings: device.createBindGroup({
         layout: updatePipeline.getBindGroupLayout(0),

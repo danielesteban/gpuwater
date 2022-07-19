@@ -17,8 +17,13 @@ const resize = () => {
   } else {
     width = SIMULATION_WIDTH * height / SIMULATION_HEIGHT;
   }
-  canvas.width = width;
-  canvas.height = height;
+  width = Math.floor(width);
+  height = Math.floor(height);
+  const pixelRatio = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(width * pixelRatio);
+  canvas.height = Math.floor(height * pixelRatio);
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
   bounds = canvas.getBoundingClientRect();
 };
 window.addEventListener('resize', resize, false);

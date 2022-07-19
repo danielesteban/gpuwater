@@ -14,7 +14,7 @@ export const Noise = (device, size) => {
   return buffer;
 };
 
-export const Uniforms = (device, data) => ({
+export const Uniform = (device, data) => ({
   buffer: device.createBuffer({
     size: data.byteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
