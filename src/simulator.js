@@ -132,18 +132,28 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 const Output = `
 @binding(0) @group(0) var<storage, read> walls : array<f32>;
 @binding(1) @group(0) var<storage, read> water : array<f32>;
-@binding(2) @group(0) var color : texture_storage_2d<rgba8unorm, write>;
+@binding(2) @group(0) var<storage, read> noise : array<f32>;
+@binding(3) @group(0) var color : texture_storage_2d<rgba8unorm, write>;
 
 ${CellFromPos}
 
-fn getColor(cell : u32) -> vec3<f32> {
-  var v : f32 = walls[cell];
-  if (v > 0.0) {
-    return vec3<f32>(0.6, 0.4, 0.0) * (0.4 + min(v / 2.0, 0.8));
+fn getDither(pos : vec2<i32>, granularity : f32) -> f32 {
+  return mix(
+    -granularity,
+    granularity,
+    noise[u32((pos.y % __NOISE_SIZE__) * __NOISE_SIZE__ + (pos.x % __NOISE_SIZE__))]
+  );
+}
+
+fn getColor(pos : vec2<i32>) -> vec3<f32> {
+  var cell : u32 = cellFromPos(pos);
+  var value : f32 = walls[cell];
+  if (value > 0.0) {
+    return (vec3<f32>(0.6, 0.4, 0.0) + getDither(pos, 0.03)) * (0.4 + min(value / 2.0, 0.8));
   }
-  v = water[cell];
-  if (v > 0.001) {
-    return vec3<f32>(0.0, 0.0, 1.0) * (1.0 - min(v / 2.0, 0.8));
+  value = water[cell];
+  if (value > 0.001) {
+    return ((vec3<f32>(0.0, 0.0, 1.0) + getDither(pos, 0.06)) * (1.0 - min(value / 2.0, 0.8)));
   }
   return vec3<f32>(0.0, 0.0, 0.0);
 }
@@ -151,9 +161,24 @@ fn getColor(cell : u32) -> vec3<f32> {
 @compute @workgroup_size(1)
 fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
   var pos : vec2<i32> = vec2<i32>(GlobalInvocationID.xy);
-  textureStore(color, pos, vec4<f32>(getColor(cellFromPos(pos)), 1.0));
+  textureStore(color, pos, vec4<f32>(getColor(pos), 1.0));
 }
 `;
+
+const Noise = (device, size) => {
+  const buffer = device.createBuffer({
+    size: size * size * Float32Array.BYTES_PER_ELEMENT,
+    usage: GPUBufferUsage.STORAGE,
+    mappedAtCreation: true,
+  });
+  const data = new Float32Array(buffer.getMappedRange());
+  for (let i = 0, l = data.length; i < l; i++) {
+    data[i] = Math.random();
+  }
+  buffer.unmap();
+  return buffer;
+};
+
 
 class Simulator {
   constructor({ canvas, width, height }) {
@@ -230,7 +255,10 @@ class Simulator {
           layout: 'auto',
           compute: {
             module: device.createShaderModule({
-              code: Output.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
+              code: Output
+                .replace(/__WIDTH__/g, width)
+                .replace(/__HEIGHT__/g, height)
+                .replace(/__NOISE_SIZE__/g, 256),
             }),
             entryPoint: 'main',
           },
@@ -258,6 +286,12 @@ class Simulator {
               },
               {
                 binding: 2,
+                resource: {
+                  buffer: Noise(device, 256),
+                },
+              },
+              {
+                binding: 3,
                 resource: outputTexture.createView(),
               },
             ],
