@@ -1,4 +1,4 @@
-import FastNoise from 'fastnoise-lite';
+import { Noise, Uniforms, World } from './buffers.js';
 import Rasterizer from './rasterizer.js';
 
 const CellFromPos = `
@@ -165,43 +165,6 @@ fn main(@builtin(global_invocation_id) GlobalInvocationID : vec3<u32>) {
 }
 `;
 
-const Noise = (device, size) => {
-  const buffer = device.createBuffer({
-    size: size * size * Float32Array.BYTES_PER_ELEMENT,
-    usage: GPUBufferUsage.STORAGE,
-    mappedAtCreation: true,
-  });
-  const data = new Float32Array(buffer.getMappedRange());
-  for (let i = 0, l = data.length; i < l; i++) {
-    data[i] = Math.random();
-  }
-  buffer.unmap();
-  return buffer;
-};
-
-const World = (device, width, height) => {
-  const buffer = device.createBuffer({
-    size: width * height * Float32Array.BYTES_PER_ELEMENT,
-    usage: GPUBufferUsage.STORAGE,
-    mappedAtCreation: true,
-  });
-  const data = new Float32Array(buffer.getMappedRange());
-  const noise = new FastNoise();
-  noise.SetSeed(Math.floor(Math.random() * 2147483647));
-  noise.SetFractalType(FastNoise.FractalType.FBm);
-  noise.SetFrequency(0.005);
-  for (let j = 0, y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++, j++) {
-      const n = noise.GetNoise(x, y);
-      if (n > 0.1) {
-        data[j] = 1 + ((n - 0.1) / 0.9);
-      }
-    }
-  }
-  buffer.unmap();
-  return buffer;
-};
-
 class Simulator {
   constructor({ canvas, width, height }) {
     navigator.gpu
@@ -224,6 +187,28 @@ class Simulator {
           })),
         ];
 
+        const updatePipeline = device.createComputePipeline({
+          layout: 'auto',
+          compute: {
+            module: device.createShaderModule({
+              code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
+            }),
+            entryPoint: 'main',
+          },
+        });
+        const updateUniforms = Uniforms(device, new Int32Array(4)); 
+        this.update = {
+          bindings: device.createBindGroup({
+            layout: updatePipeline.getBindGroupLayout(0),
+            entries: [updateUniforms.buffer, ...buffers].map((buffer, binding) => ({
+              binding,
+              resource: { buffer },
+            })),
+          }),
+          pipeline: updatePipeline,
+          uniforms: updateUniforms,
+        };
+
         const simulationPipeline = device.createComputePipeline({
           layout: 'auto',
           compute: {
@@ -233,24 +218,18 @@ class Simulator {
             entryPoint: 'main',
           },
         });
-        const simulationUniforms = device.createBuffer({
-          size: 2 * Int32Array.BYTES_PER_ELEMENT,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
-        });
+        const simulationUniforms = Uniforms(device, new Int32Array(2));
         this.simulation = {
           bindings: device.createBindGroup({
             layout: simulationPipeline.getBindGroupLayout(0),
-            entries: [simulationUniforms, ...buffers].map((buffer, binding) => ({
+            entries: [simulationUniforms.buffer, ...buffers].map((buffer, binding) => ({
               binding,
               resource: { buffer },
             })),
           }),
-          uniforms: {
-            buffer: simulationUniforms,
-            data: new Int32Array(2),
-          },
           buffers,
           pipeline: simulationPipeline,
+          uniforms: simulationUniforms,
           width,
           height,
         };
@@ -301,36 +280,6 @@ class Simulator {
             ],
           }),
           pipeline: outputPipeline,
-          texture: outputTexture,
-        };
-
-        const updatePipeline = device.createComputePipeline({
-          layout: 'auto',
-          compute: {
-            module: device.createShaderModule({
-              code: Update.replace(/__WIDTH__/g, width).replace(/__HEIGHT__/g, height),
-            }),
-            entryPoint: 'main',
-          },
-        });
-        const updateUniforms = device.createBuffer({
-          size: 4 * Int32Array.BYTES_PER_ELEMENT,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
-        });
-        this.update = {
-          bindings: device.createBindGroup({
-            layout: updatePipeline.getBindGroupLayout(0),
-            entries: [updateUniforms, ...buffers].map((buffer, binding) => ({
-              binding,
-              resource: { buffer },
-            })),
-          }),
-          uniforms: {
-            buffer: updateUniforms,
-            data: new Int32Array(4),
-          },
-          buffers,
-          pipeline: updatePipeline,
         };
 
         this.rasterizer = new Rasterizer({
@@ -348,33 +297,31 @@ class Simulator {
     const { simulation, device, output, rasterizer, update } = this;
   
     if (pointer.button !== -1) {
-      update.uniforms.data.set([
-        Math.floor(pointer.x * simulation.width),
-        Math.floor(pointer.y * simulation.height),
-        pointer.button,
-        pointer.size,
-      ]);
-      device.queue.writeBuffer(update.uniforms.buffer, 0, update.uniforms.data);
       const command = device.createCommandEncoder();
       const pass = command.beginComputePass();
       pass.setPipeline(update.pipeline);
       pass.setBindGroup(0, update.bindings);
       pass.dispatchWorkgroups(1);
       pass.end();
+      update.uniforms.set([
+        Math.floor(pointer.x * simulation.width),
+        Math.floor(pointer.y * simulation.height),
+        pointer.button,
+        pointer.size,
+      ]);
       device.queue.submit([command.finish()]);
     }
 
     for (let i = 0; i < iterations; i++) {
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 3; x++) {
-          simulation.uniforms.data.set([x, y]);
-          device.queue.writeBuffer(simulation.uniforms.buffer, 0, simulation.uniforms.data);
           const command = device.createCommandEncoder();
           const pass = command.beginComputePass();
           pass.setPipeline(simulation.pipeline);
           pass.setBindGroup(0, simulation.bindings);
           pass.dispatchWorkgroups(Math.ceil(simulation.width / 3), Math.ceil(simulation.height / 3));
           pass.end();
+          simulation.uniforms.set([x, y]);
           device.queue.submit([command.finish()]);
         }
       }
