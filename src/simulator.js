@@ -319,6 +319,32 @@ class Simulator {
     }
 
     for (let i = 0; i < iterations; i++) {
+      // Each water cell can flow into it's 4 adjacent neighbors.
+      // The simulation runs in parallel and can't accumulate flow from different neighbors in the same cell.
+      // This runs 9 passes that only update every third cell (+ the pass offset)
+      // to ensure each neighbor only receives flow from a single cell.
+      // First pass
+      //   0                 1
+      // [ ->] [·  ] [  ·] [<->] [·  ]
+      // Second pass
+      //         0                 1
+      // [   ] [ ->] [·  ] [  ·] [<- ]
+      // Third pass
+      //               0                 1
+      // [   ] [  ·] [<->] [·  ] [  ·] [<- ]
+      // The same happens vertically
+      // First pass
+      // 0 [\./]
+      //   [ · ]
+      //   [ · ]
+      // 1 [/·\]
+      //   [   ]
+      // Second pass
+      //   [   ]
+      // 0 [\./]
+      //   [ · ]
+      //   [ · ]
+      // 1 [/·\]
       for (let y = 0; y < 3; y++) {
         for (let x = 0; x < 3; x++) {
           simulation.uniforms.set([x, y]);
