@@ -177,15 +177,17 @@ class Simulator {
             mappedAtCreation: i === 0,
           });
           if (i === 0) {
+            const data = new Float32Array(buffer.getMappedRange());
             const noise = new FastNoise();
             noise.SetSeed(Math.floor(Math.random() * 2147483647));
             noise.SetFractalType(FastNoise.FractalType.FBm);
             noise.SetFrequency(0.005);
-            const data = new Float32Array(buffer.getMappedRange());
-            for (let y = 0; y < height; y++) {
-              for (let x = 0; x < width; x++) {
+            for (let j = 0, y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++, j++) {
                 const n = noise.GetNoise(x, y);
-                if (n > 0.1) data[y * width + x] = 0.9 + n;
+                if (n > 0.1) {
+                  data[j] = 0.9 + n;
+                }
               }
             }
             buffer.unmap();
