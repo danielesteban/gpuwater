@@ -44,39 +44,57 @@ window.addEventListener('mouseup', ({ button }) => {
   }
 }, false);
 
-if (navigator.gpu && navigator.gpu.getPreferredCanvasFormat) {
-  (async () => {
-    const adapter = await navigator.gpu.requestAdapter();
-    const device = await adapter.requestDevice();
-    const simulator = new Simulator({
-      device,
-      width: SIMULATION_WIDTH,
-      height: SIMULATION_HEIGHT,
-    });
-    const rasterizer = new Rasterizer({
-      canvas,
-      device,
-      format: navigator.gpu.getPreferredCanvasFormat(adapter),
-      texture: simulator.output.texture.createView(),
-    });
+const GPU = async () => {
+  if (!navigator.gpu) {
+    throw new Error('WebGPU support');
+  }
+  const adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) {
+    throw new Error('WebGPU adapter');
+  }
+  const device = await adapter.requestDevice();
+  const check = device.createShaderModule({
+    code: `const checkConstSupport : f32 = 1;`,
+  });
+  const { messages } = await check.compilationInfo();
+  if (messages.find(({ type }) => type === 'error')) {
+    throw new Error('WGSL const support');
+  }
+  return { adapter, device };
+};
 
-    let clock = performance.now() / 1000;
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        clock = performance.now() / 1000;
-      }
-    }, false);
 
-    const animate = () => {
-      requestAnimationFrame(animate);
-      const now = performance.now() / 1000;
-      const delta = now - clock;
-      clock = now;
-      simulator.tick(Math.min(Math.max(Math.floor(delta / (1 / 600)), 1), 10), pointer);
-      rasterizer.render();
-    };
+GPU().then(({ adapter, device }) => {
+  const simulator = new Simulator({
+    device,
+    width: SIMULATION_WIDTH,
+    height: SIMULATION_HEIGHT,
+  });
+  const rasterizer = new Rasterizer({
+    canvas,
+    device,
+    format: navigator.gpu.getPreferredCanvasFormat(adapter),
+    texture: simulator.output.texture.createView(),
+  });
+
+  let clock = performance.now() / 1000;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      clock = performance.now() / 1000;
+    }
+  }, false);
+
+  const animate = () => {
     requestAnimationFrame(animate);
-  })();
-} else {
+    const now = performance.now() / 1000;
+    const delta = now - clock;
+    clock = now;
+    simulator.tick(Math.min(Math.max(Math.floor(delta / (1 / 600)), 1), 10), pointer);
+    rasterizer.render();
+  };
+  requestAnimationFrame(animate);
+})
+.catch((e) => {
+  console.error(e);
   document.getElementById('canary').classList.add('enabled');
-}
+});
