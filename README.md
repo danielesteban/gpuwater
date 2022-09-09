@@ -3,8 +3,6 @@
 
 [![gpuwater](screenshot.png)](https://gpuwater.gatunes.com)
 
-> Works only in Chrome Canary
-
 ### Dev environment
 
 ```bash
